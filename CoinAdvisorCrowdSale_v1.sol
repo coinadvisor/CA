@@ -1,4 +1,4 @@
-pragma solidity ^0.4.19;
+pragma solidity ^0.4.18;
 
 
 /**
@@ -166,7 +166,7 @@ contract CoinAdvisorCrowdSale is Ownable, ControlledCrowdSale {
     event CrowdSaleStarted(string message, address crowdSaleStarted);
 
 
-    function CoinAdvisorVault(address _beneficiary, address _token, address _crowdSale, uint256 _goal) public {
+    function CoinAdvisorCrowdSale(address _beneficiary, address _token, uint256 _goal) public {
         require(_beneficiary != address(0));
         beneficiary = _beneficiary;
         token = ERC20(_token);
@@ -230,21 +230,21 @@ contract CoinAdvisorCrowdSale is Ownable, ControlledCrowdSale {
      * 
      *
      */
-    function addPhases(Phase[] _phases) onlyOwner public {
-        for (uint256 i=0; i < _phases.length; i++) {
-            phases.push(_phases[i]);
-        }
+    function addPhases(uint expireDate, uint256 maxAmount, bool maxAmountEnabled, uint rate, bool locked) onlyOwner public {
+//        for (uint256 i=0; i < _phases.length; i++) {
+            phases.push(Phase(expireDate, maxAmount, maxAmountEnabled, rate, locked));
+//        }
     }
     
     /**
      * 
      *
      */
-    function resetPhases(Phase[] _phases) onlyOwner public {
+    function resetPhases(uint expireDate, uint256 maxAmount, bool maxAmountEnabled, uint rate, bool locked) onlyOwner public {
         require(!currentPhase().locked);
         phases.length = 0;
         lastActivePhase = 0;
-        addPhases(_phases);
+        addPhases(expireDate, maxAmount, maxAmountEnabled, rate, locked);
     }
     
     /**

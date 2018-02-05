@@ -11,25 +11,25 @@ library SafeMath {
             return 0;
         }
         uint256 c = a * b;
-        assert(c / a == b);
+        require(c / a == b);
         return c;
     }
     
     function div(uint256 a, uint256 b) internal pure returns (uint256) {
-        assert(b > 0); // Solidity automatically throws when dividing by 0
+        require(b > 0); // Solidity automatically throws when dividing by 0
         uint256 c = a / b;
-        assert(a == b * c + a % b); // There is no case in which this doesn't hold
+        require(a == b * c + a % b); // There is no case in which this doesn't hold
         return c;
     }
     
     function sub(uint256 a, uint256 b) internal pure returns (uint256) {
-        assert(b <= a);
+        require(b <= a);
         return a - b;
     }
     
     function add(uint256 a, uint256 b) internal pure returns (uint256) {
         uint256 c = a + b;
-        assert(c >= a);
+        require(c >= a);
         return c;
     }
 }
@@ -58,11 +58,38 @@ contract ERC20 is ERC20Basic {
     event Approval(address indexed owner, address indexed spender, uint256 value);
 }
 
+
 /**
- *******************************************************************************
- ********************* Crowd Sale **********************************************
- *******************************************************************************
+ * @title BurnableCADVToken interface
+ * @dev see https://github.com/ethereum/EIPs/issues/20
  */
+contract BurnableCADVToken is ERC20 {
+
+    uint8 public decimals = 18;
+    string public name;
+    string public symbol;
+    
+    /**
+     * @dev set the amount of tokens that an owner allowed to a spender.
+     *  
+     * This function is disabled because using it is risky, so a revert()
+     * is always called as the first line of code.
+     * Instead of this function, use increaseApproval or decreaseApproval.
+     * 
+     * @param _spender The address which will spend the funds.
+     * @param _addedValue The amount of tokens to increase the allowance by.
+     */
+    function approve(address spender, uint256 value) public returns (bool){
+        revert();
+    }
+    
+    function increaseApproval(address _spender, uint _addedValue) public returns (bool);
+    function decreaseApproval(address _spender, uint _subtractedValue) public returns (bool);
+    function multipleTransfer(address[] _tos, uint256 _value) public returns (bool);
+    function burn(uint256 _value) public;
+    event Burn(address indexed burner, uint256 value);
+    
+}
 
 
 /**
@@ -72,10 +99,6 @@ contract ERC20 is ERC20Basic {
  */
 contract Ownable {
     address public owner;
-    
-    
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-    
     
     /**
     * @dev The Ownable constructor sets the original `owner` of the contract to the sender
@@ -104,12 +127,14 @@ contract Ownable {
         OwnershipTransferred(owner, newOwner);
         owner = newOwner;
     }
+    
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 }
 
 
-/*
-    Controlled CrowdSale
-*/
+/**
+ * @title Controlled CrowdSale
+ */
 contract ControlledCrowdSale {
     using SafeMath for uint256;
     
@@ -134,7 +159,7 @@ contract ControlledCrowdSale {
  * @title CoinAdvisorCrowdSale
  * @dev This contract is used for storing funds while a crowdsale
  * is in progress. Supports refunding the money if crowdsale fails,
- * and forwarding it if crowdsale is successful.
+ * and forwarding it to a beneficiary if crowdsale is successful.
  */
 contract CoinAdvisorCrowdSale is Ownable, ControlledCrowdSale {
     using SafeMath for uint256;
@@ -149,31 +174,30 @@ contract CoinAdvisorCrowdSale is Ownable, ControlledCrowdSale {
     }
 
 //=== properties =============================================
-
     Phase[] public phases;
     uint256 lastActivePhase;
-    
-    State public state;
+    State state;
     uint256 public goal;
     address public beneficiary;
-    ERC20 public token;
-  
-  
+    BurnableCADVToken public token;
+    uint256 public refunduingStartDate;
+    
 //=== events ==================================================
     event CrowdSaleClosed(string message, address crowdSaleClosed);
     event RefundsEnabled();
     event Refunded(address indexed beneficiary, uint256 weiAmount);
     event CrowdSaleStarted(string message, address crowdSaleStarted);
 
-
-    function CoinAdvisorCrowdSale(address _beneficiary, address _token, uint256 _goal) public {
+//=== constructor =============================================
+    function CoinAdvisorCrowdSale(address _beneficiary, address _token, uint256 _goal, uint256 _refunduingStartDate) public {
         require(_beneficiary != address(0));
         beneficiary = _beneficiary;
-        token = ERC20(_token);
-        phases.push(Phase(0, 0, false, 1000, false));
+        token = BurnableCADVToken(_token);
+        phases.push(Phase(0, 0, false, 0, false));
         lastActivePhase = 0;
         goal = _goal * 1 ether;
         state = State.Active;
+        refunduingStartDate = _refunduingStartDate;
     }
 
 
@@ -181,35 +205,51 @@ contract CoinAdvisorCrowdSale is Ownable, ControlledCrowdSale {
      * 
      *
      */ 
-    function isPhaseValid(uint256 index) internal view returns (bool) {
-        return phases[index].expireDate <= now && (!phases[index].maxAmountEnabled || phases[index].maxAmount > minPerUser);
+    function isPhaseValid(uint256 index) public view returns (bool) {
+        return phases[index].expireDate >= now && (!phases[index].maxAmountEnabled || phases[index].maxAmount > minPerUser);
     } 
+    
     
     /**
      * 
      *
      */
-    function currentPhaseId() internal view returns (uint256) {
+    function currentPhaseId() public view returns (uint256) {
         uint256 index = lastActivePhase;
         while(index < phases.length-1 && !isPhaseValid(index)) {
             index = index +1;
         }
         return index;
     }
-
+    
+    
     /**
      * 
      *
      */
-    function currentPhase() public view returns (Phase) {
-        return phases[currentPhaseId()];
+    function addPhases(uint expireDate, uint256 maxAmount, bool maxAmountEnabled, uint rate, bool locked) onlyOwner public {
+        phases.push(Phase(expireDate, maxAmount, maxAmountEnabled, rate, locked));
     }
-  
+    
+    
+    /**
+     * 
+     *
+     */
+    function resetPhases(uint expireDate, uint256 maxAmount, bool maxAmountEnabled, uint rate, bool locked) onlyOwner public {
+        require(!phases[currentPhaseId()].locked);
+        phases.length = 0;
+        lastActivePhase = 0;
+        addPhases(expireDate, maxAmount, maxAmountEnabled, rate, locked);
+    }
+    
+    
     /**
      * 
      *
      */
     function () controlledDonation public payable {
+        require(state != State.Refunding);
         uint256 phaseId = currentPhaseId();
         require(isPhaseValid(phaseId));
         
@@ -226,26 +266,17 @@ contract CoinAdvisorCrowdSale is Ownable, ControlledCrowdSale {
         lastActivePhase = phaseId;
     }
     
-    /**
-     * 
-     *
-     */
-    function addPhases(uint expireDate, uint256 maxAmount, bool maxAmountEnabled, uint rate, bool locked) onlyOwner public {
-//        for (uint256 i=0; i < _phases.length; i++) {
-            phases.push(Phase(expireDate, maxAmount, maxAmountEnabled, rate, locked));
-//        }
-    }
     
     /**
      * 
      *
      */
-    function resetPhases(uint expireDate, uint256 maxAmount, bool maxAmountEnabled, uint rate, bool locked) onlyOwner public {
-        require(!currentPhase().locked);
-        phases.length = 0;
-        lastActivePhase = 0;
-        addPhases(expireDate, maxAmount, maxAmountEnabled, rate, locked);
+    function retrieveFounds() onlyOwner public {
+        require(state == State.Completed || (state == State.Active && this.balance >= goal));
+        state = State.Completed;
+        beneficiary.transfer(this.balance);
     }
+    
     
     /**
      * 
@@ -253,11 +284,12 @@ contract CoinAdvisorCrowdSale is Ownable, ControlledCrowdSale {
      */
     function startRefunding() public {
         require(state == State.Active);
-        require(!currentPhase().locked);
         require(this.balance < goal);
+        require(refunduingStartDate < now);
         state = State.Refunding;
         RefundsEnabled();
     }
+    
     
     /**
      * 
@@ -269,17 +301,6 @@ contract CoinAdvisorCrowdSale is Ownable, ControlledCrowdSale {
         RefundsEnabled();
     }
     
-    /**
-     * 
-     *
-     */
-    function retrieveFounds() onlyOwner public {
-        require(state == State.Completed || 
-                (state == State.Active && this.balance >= goal));
-                
-        state = State.Completed;
-        beneficiary.transfer(this.balance);
-    }
     
     /**
      * 
@@ -295,6 +316,19 @@ contract CoinAdvisorCrowdSale is Ownable, ControlledCrowdSale {
         Refunded(investor, depositedValue);
     }
     
+    
+    /**
+     * 
+     *
+     */
+    function gameOver() onlyOwner public {
+        require(!isPhaseValid(currentPhaseId()));
+        require(state == State.Completed || (state == State.Active && this.balance >= goal));
+        token.burn(token.balanceOf(this));
+        selfdestruct(beneficiary);
+    }
+    
+    
     /**
      * 
      *
@@ -304,37 +338,21 @@ contract CoinAdvisorCrowdSale is Ownable, ControlledCrowdSale {
         unboundedLimit[_investor] = _state;
     }
 
-    /**
-     * 
-     *
-     */
-    function gameOver() onlyOwner public {
-        uint256 i = currentPhaseId();
-        require(!isPhaseValid(i));
-        retrieveFounds();
-        selfdestruct(beneficiary);
-    }
-    
-    
-    // detail functions
-    
-    // function currentTokenPerEtherRate() public view returns (uint) {
-    //     return currentPhase().rate;
-    // }
     
     function currentState() public view returns (string) {
         if (state == State.Active) {
-            return "";
+            return "Active";
         }
         if (state == State.Completed) {
-            return "";
+            return "Completed";
         }
         if (state == State.Refunding) {
-            return "";
+            return "Refunding";
         }
     }
     
-    function tokensInSale() public view returns (uint256) {
+    
+    function tokensOnSale() public view returns (uint256) {
         uint256 i = currentPhaseId();
         if (isPhaseValid(i)) {
             return phases[i].maxAmountEnabled ? phases[i].maxAmount : token.balanceOf(this);
@@ -342,24 +360,7 @@ contract CoinAdvisorCrowdSale is Ownable, ControlledCrowdSale {
             return 0;
         }
     }
-    
-    function salePhaseExpirationDate() public view returns (uint256) {
-        uint256 i = currentPhaseId();
-        if (isPhaseValid(i)) {
-            return phases[i].expireDate;
-        } else {
-            return 0;
-        }
-    }
-    
-    function tokensPerEtherRate() public view returns (uint256) {
-        uint256 i = currentPhaseId();
-        if (isPhaseValid(i)) {
-            return phases[i].rate;
-        } else {
-            return 0;
-        }
-    }
+
     
 }
 

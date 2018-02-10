@@ -146,7 +146,7 @@ contract ControlledCrowdSale {
     
     
     modifier controlledDonation() {
-        require(msg.value >= minPerUser && msg.value <= maxPerUser);
+        require(msg.value >= minPerUser);
         deposited[msg.sender] = deposited[msg.sender].add(msg.value);
         require(maxPerUser >= deposited[msg.sender] || unboundedLimit[msg.sender]);
         _;

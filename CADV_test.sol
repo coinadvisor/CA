@@ -58,11 +58,21 @@ contract BasicToken is ERC20Basic {
     mapping(address => uint256) balances;
     
     /**
+    * @dev Fix for the ERC20 short address attack.
+    */
+    modifier onlyPayloadSize(uint size) {
+        if(msg.data.length < size + 4) {
+            throw;
+        }
+        _;
+    }
+    
+    /**
      * @dev transfer token for a specified address
      * @param _to The address to transfer to.
      * @param _value The amount to be transferred.
      */
-    function transfer(address _to, uint256 _value) public returns (bool) {
+    function transfer(address _to, uint256 _value) public onlyPayloadSize(32*2) returns (bool) {
         require(_to != address(0));
         require(_value <= balances[msg.sender]);
         
